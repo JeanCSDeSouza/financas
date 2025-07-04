@@ -2,6 +2,7 @@ package br.com.financas.extrato_api.service;
 
 import br.com.financas.extrato_api.model.Transacao;
 import br.com.financas.extrato_api.repository.TransacaoRepository;
+import br.com.financas.extrato_api.util.CsvColumn;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -20,17 +21,20 @@ import java.util.function.Predicate;
 @Service
 public class ExtratoService {
 
-    @Autowired
-    private TransacaoRepository transacaoRepository;
+    private final TransacaoRepository transacaoRepository;
     private static final String RECONHECE_VALOR_MONETARIO = "^[+-]?\\d+(\\.\\d+)?$";
     private static final String CSV_SEPARADOR_COLUNAS = ",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)";
     private final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
+    @Autowired
+    public ExtratoService(TransacaoRepository transacaoRepository) {
+        this.transacaoRepository = transacaoRepository;
+    }
+
     public void processarArquivo(MultipartFile file) {
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8))) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(file.getInputStream(), StandardCharsets.ISO_8859_1))) {
             String linha;
             boolean primeiraLinha = true;
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
             List<Transacao> transacoes = reader.lines()
                     .skip(1) // pula o cabeçalho
@@ -63,35 +67,45 @@ public class ExtratoService {
         //Splitar os campos da String que vêm do CSV
         String[] campos = linha.split(CSV_SEPARADOR_COLUNAS, -1);
 
-        Map<String, Predicate<String[]>> validacoes = Map.of(
-                "tamanho", campo -> campo.length >= 6,
-                "tipoLancamentoPresente", campo -> !campos[5].trim().isEmpty(),
-                "dataValida", campo -> {
-                    String dataStr = campos[0].replace("\"", "").trim();
-                    return !(dataStr.isEmpty() || dataStr.equals("00/00/0000"));
-                },
-                "valorValido", campo -> {
-                    String valorStr = campo[4].replace("\"", "").replace(",", ".").trim();
-                    return valorStr.matches(RECONHECE_VALOR_MONETARIO);
-                }
-        );
         return Optional.of(campos)
-                .filter(cs -> validacoes.values().stream().allMatch(v -> v.test(cs)))
+                .filter(cs -> getPredicateMap(campos).values().stream().allMatch(v -> v.test(cs)))
                 .map(cs -> {
-                    LocalDate data = LocalDate.parse(cs[0].replace("\"", "").trim(), formatter);
-                    double valor = Double.parseDouble(cs[4].replace("\"", "").replace(",", ".").trim());
+                    LocalDate data = LocalDate.parse(cleanAndTrimCsvField(cs[0]), formatter);
+                    double valor = Double.parseDouble(replaceCommaWithPeriod(cs[4]));
                     return Transacao.builder()
                             .id(null)
                             .data(data)
-                            .lancamento(cs[1].replace("\"", "").trim())
-                            .detalhes(cs[2].replace("\"", "").trim())
-                            .numeroDocumento(cs[3].replace("\"", "").trim())
+                            .lancamento(cleanAndTrimCsvField(cs[CsvColumn.LANCAMENTO.getIndex()]))
+                            .detalhes(cleanAndTrimCsvField(cs[CsvColumn.DETALHES.getIndex()]))
+                            .numeroDocumento(cleanAndTrimCsvField(cs[CsvColumn.NUMERO_DOCUMENTO.getIndex()]))
                             .valor(valor)
-                            .tipoLancamento(cs[5].replace("\"", "").trim())
+                            .tipoLancamento(cleanAndTrimCsvField(cs[CsvColumn.TIPO_LANCAMENTO.getIndex()]))
                             .build();
 
                 });
     }
+
+    private static Map<String, Predicate<String[]>> getPredicateMap(String[] campos) {
+        return Map.of(
+                "tamanho", campo -> campo.length >= 6,
+                "tipoLancamentoPresente", campo -> !campos[CsvColumn.TIPO_LANCAMENTO.getIndex()].trim().isEmpty(),
+                "dataValida", campo -> {
+                    String dataStr = campos[CsvColumn.DATA.getIndex()].replace("\"", "").trim();
+                    return !(dataStr.isEmpty() || dataStr.equals("00/00/0000"));
+                },
+                "valorValido", campo -> {
+                    String valorStr = campo[CsvColumn.VALOR.getIndex() ].replace("\"", "").replace(",", ".").trim();
+                    return valorStr.matches(RECONHECE_VALOR_MONETARIO);
+                }
+        );
+    }
+    private static String cleanAndTrimCsvField(String campo){
+        return campo.replace("\"", "").trim();
+    }
+    private static String replaceCommaWithPeriod(String campo){
+        return campo.replace("\"", "").replace(",", ".").trim();
+    }
+
     public List<Transacao> getExtrato() {
         return transacaoRepository.findAll();
     }

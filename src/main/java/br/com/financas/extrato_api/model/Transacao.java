@@ -1,31 +1,41 @@
 package br.com.financas.extrato_api.model;
 
-import lombok.*;
-import org.springframework.data.annotation.Id;
-import org.springframework.data.mongodb.core.mapping.Document;
-import org.springframework.format.annotation.DateTimeFormat;
-
+import jakarta.persistence.*;
 import java.time.LocalDate;
 
-
-@Document(collection = "transacoes")
+@Entity
+@Table(name = "transacoes")
 public class Transacao {
 
     @Id
-    private String id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
+    @Column(nullable = false)
     private LocalDate data;
+
+    @Column(nullable = false)
     private String lancamento;
+
     private String detalhes;
+
+    @Column(name = "numero_documento")
     private String numeroDocumento;
+
+    @Column(nullable = false)
     private double valor;
+
+    @Column(name = "tipo_lancamento", nullable = false)
     private String tipoLancamento;
+
+    @Column(nullable = false)
+    private String categoria;
 
     public Transacao() {
     }
 
-    public Transacao(String id, LocalDate data, String lancamento, String detalhes,
-                     String numeroDocumento, double valor, String tipoLancamento) {
+    public Transacao(Long id, LocalDate data, String lancamento, String detalhes,
+                     String numeroDocumento, double valor, String tipoLancamento, String categoria) {
         this.id = id;
         this.data = data;
         this.lancamento = lancamento;
@@ -33,10 +43,11 @@ public class Transacao {
         this.numeroDocumento = numeroDocumento;
         this.valor = valor;
         this.tipoLancamento = tipoLancamento;
+        this.categoria = categoria;
     }
 
     // Getters
-    public String getId() {
+    public Long getId() {
         return id;
     }
 
@@ -64,8 +75,12 @@ public class Transacao {
         return tipoLancamento;
     }
 
+    public String getCategoria() {
+        return categoria;
+    }
+
     // Setters
-    public void setId(String id) {
+    public void setId(Long id) {
         this.id = id;
     }
 
@@ -93,21 +108,26 @@ public class Transacao {
         this.tipoLancamento = tipoLancamento;
     }
 
+    public void setCategoria(String categoria) {
+        this.categoria = categoria;
+    }
+
     // Builder
     public static Builder builder() {
         return new Builder();
     }
 
     public static class Builder {
-        private String id;
+        private Long id;
         private LocalDate data;
         private String lancamento;
         private String detalhes;
         private String numeroDocumento;
         private double valor;
         private String tipoLancamento;
+        private String categoria;
 
-        public Builder id(String id) {
+        public Builder id(Long id) {
             this.id = id;
             return this;
         }
@@ -142,8 +162,13 @@ public class Transacao {
             return this;
         }
 
+        public Builder categoria(String categoria) {
+            this.categoria = categoria;
+            return this;
+        }
+
         public Transacao build() {
-            return new Transacao(id, data, lancamento, detalhes, numeroDocumento, valor, tipoLancamento);
+            return new Transacao(id, data, lancamento, detalhes, numeroDocumento, valor, tipoLancamento, categoria);
         }
     }
 }

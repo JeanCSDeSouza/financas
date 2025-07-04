@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Importador Financeiro</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        h1, h2 { color: #2c3e50; }
+        form { margin-bottom: 20px; }
+        input[type="file"] { margin-right: 10px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ccc; padding: 8px; }
+        th { background-color: #ecf0f1; }
+        #status { font-weight: bold; margin-top: 10px; }
+        hr { margin: 40px 0; }
+        canvas { max-width: 800px; margin-top: 30px; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<h1>Importador Financeiro</h1>
+
+<h2>Importar Extrato Bancário</h2>
+<form id="uploadExtratoForm">
+    <input type="file" id="extratoFile" name="file" accept=".csv" required>
+    <button type="submit">Enviar Extrato</button>
+</form>
+<div id="extratoStatus"></div>
+<table id="extratoTable" style="display:none">
+    <thead>
+    <tr>
+        <th>Data</th>
+        <th>Lançamento</th>
+        <th>Detalhes</th>
+        <th>Nº Documento</th>
+        <th>Valor</th>
+        <th>Tipo</th>
+    </tr>
+    </thead>
+    <tbody></tbody>
+</table>
+<canvas id="graficoExtrato"></canvas>
+
+<hr>
+
+<h2>Importar Fatura Cartão</h2>
+<form id="uploadFaturaForm">
+    <input type="file" id="faturaFile" name="file" accept="application/pdf" required>
+    <button type="submit">Enviar Fatura</button>
+</form>
+<div id="faturaStatus"></div>
+<table id="faturaTable" style="display:none">
+    <thead>
+    <tr>
+        <th>Data</th>
+        <th>Descrição</th>
+        <th>Valor</th>
+        <th>Tipo</th>
+    </tr>
+    </thead>
+    <tbody></tbody>
+</table>
+<canvas id="graficoFatura"></canvas>
+
+<script>
+    function gerarGraficoEmpilhado(canvasId, dados, rotulo) {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        const agrupado = {};
+        const tipos = new Set();
+
+        dados.forEach(t => {
+            const tipo = t.tipo || t.tipoLancamento;
+            const data = t.data;
+            const valor = parseFloat(t.valor);
+            tipos.add(tipo);
+            if (!agrupado[data]) agrupado[data] = {};
+            agrupado[data][tipo] = (agrupado[data][tipo] || 0) + valor;
+        });
+
+        const labels = Object.keys(agrupado).sort();
+        const datasets = Array.from(tipos).map((tipo, i) => {
+            return {
+                label: tipo,
+                data: labels.map(data => agrupado[data][tipo] || 0),
+                backgroundColor: `hsl(${i * 50 % 360}, 60%, 60%)`
+            };
+        });
+
+        new Chart(ctx, {
+            type: 'bar',
+            data: { labels, datasets },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'top' },
+                    title: { display: true, text: rotulo }
+                },
+                scales: {
+                    x: { stacked: true },
+                    y: { stacked: true }
+                }
+            }
+        });
+    }
+
+    async function enviarArquivo(formId, inputId, url, statusId, tabelaId, preencherLinha, canvasId) {
+        const form = document.getElementById(formId);
+        const fileInput = document.getElementById(inputId);
+        const statusDiv = document.getElementById(statusId);
+        const table = document.getElementById(tabelaId);
+        const tbody = table.querySelector('tbody');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            statusDiv.textContent = 'Enviando...';
+            table.style.display = 'none';
+            tbody.innerHTML = '';
+
+            try {
+                const uploadRes = await fetch(url, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await uploadRes.text();
+                statusDiv.textContent = result;
+
+                if (uploadRes.ok) {
+                    const dataUrl = url.includes('fatura') ? 'http://localhost:8080/fatura/listar' : 'http://localhost:8080/financas/visualisar-extrato';
+                    const dataRes = await fetch(dataUrl);
+                    const transacoes = await dataRes.json();
+
+                    transacoes.forEach(t => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = preencherLinha(t);
+                        tbody.appendChild(row);
+                    });
+
+                    table.style.display = 'table';
+                    gerarGraficoEmpilhado(canvasId, transacoes, canvasId.includes('Fatura') ? 'Fatura por Tipo e Data' : 'Extrato por Tipo e Data');
+                }
+            } catch (err) {
+                statusDiv.textContent = 'Erro ao enviar arquivo';
+                console.error(err);
+            }
+        });
+    }
+
+    enviarArquivo(
+        'uploadExtratoForm', 'extratoFile', 'http://localhost:8080/financas/carregar-extrato', 'extratoStatus', 'extratoTable',
+        t => `
+        <td>${t.data}</td>
+        <td>${t.lancamento}</td>
+        <td>${t.detalhes}</td>
+        <td>${t.numeroDocumento}</td>
+        <td>R$ ${parseFloat(t.valor.replace('R$','').replace(',','.')).toFixed(2)}</td>
+        <td>${t.tipoLancamento}</td>
+      `,
+        'graficoExtrato'
+    );
+
+    enviarArquivo(
+        'uploadFaturaForm', 'faturaFile', 'http://localhost:8080/fatura/importar', 'faturaStatus', 'faturaTable',
+        t => `
+        <td>${t.data}</td>
+        <td>${t.descricao}</td>
+        <td>R$ ${t.valor.toFixed(2)}</td>
+        <td>${t.tipo}</td>
+      `,
+        'graficoFatura'
+    );
+</script>
+</body>
+</html>
